@@ -168,6 +168,7 @@ def random_joke() -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 # ---------- Dog Image ----------
+
 @mcp.tool()
 def random_dog() -> Dict[str, Any]:
     """

@@ -1,4 +1,4 @@
-# agent.py
+
 import asyncio
 import json
 import os
@@ -34,10 +34,6 @@ You are an autonomous AI agent with access to tools. Always respond in JSON form
 
 Rules:
 - Carefully analyze the user's request. If they ask for multiple things or specific quantities, identify EXACTLY what they need.
-- Examples:
-  * "two dog images" = call random_dog tool EXACTLY 2 times
-  * "a joke and a dog image" = call random_joke once, then random_dog once
-  * "3 book recommendations" = call book_recs with limit=3 once
 - Call tools ONE AT A TIME: respond with JSON: {"action":"tool_name","args":{...}}
 - ONLY use tools from the available tools list - NEVER make up tool names.
 - After receiving each tool result, count what you've completed and decide:
@@ -57,13 +53,14 @@ For the final answer:
 """
 
 # -------------------------------------------------
-# LLM CALL (GROQ) - CONFIGURABLE PARAMETERS
+# LLM CALL (GROQ)
 # -------------------------------------------------
-def llm_call(messages: List[Dict[str, str]], temperature: float = 0.5, top_p: float = 0.9) -> str:
+def llm_call(messages: List[Dict[str, str]], temperature: float = 0.3, top_p: float = 0.8) -> str:
     """
     Call Groq LLM with configurable parameters.
     
     Args:
+        messages: List of message dictionaries with role and content
         temperature: Controls randomness (0.0-2.0). Lower = more focused, higher = more creative.
         top_p: Controls diversity via nucleus sampling (0.0-1.0).
     """
@@ -77,11 +74,25 @@ def llm_call(messages: List[Dict[str, str]], temperature: float = 0.5, top_p: fl
     return response.choices[0].message.content
 
 
+def remove_image_placeholders(text: str) -> str:
+    patterns = [
+        r"Here are .*images?.*:",
+        r"Image\s*\d+\s*:",
+    ]
+    for p in patterns:
+        text = re.sub(p, "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
 # -------------------------------------------------
 # SINGLE-TURN AGENT (USED BY UI)
 # -------------------------------------------------
 async def run_agent_once(user_message: str) -> Dict[str, Any]:
     server_path = "server.py"
+
+    # Clip user prompt if too large
+    MAX_PROMPT_CHARS = 8000
+    user_message = user_message[:MAX_PROMPT_CHARS]
 
     tools_used: List[str] = []
     history: List[Dict[str, str]] = [
@@ -110,8 +121,8 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
         tool_results = []
 
         for iteration in range(12):  # Increased to handle more multiple requests
-            # Before each decision, add summary of pending tool results if this is not the first iteration
-            if iteration > 0 and tool_results:
+            # Add summary of tool results ONCE on iteration 1
+            if iteration == 1 and tool_results:
                 # Count how many times each tool was called
                 tool_counts = {}
                 for tr in tool_results:
@@ -154,17 +165,10 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
                 
                 # Append any images that are NOT already in the answer
                 for tool_info in tool_results:
-                    # Check if this is an image
-                    is_image = (
-                        tool_info["name"] == "random_dog" or 
-                        "![" in tool_info["content"] or 
-                        "data:image" in tool_info["content"]
-                    )
-                    
-                    if is_image:
-                        # Only append this specific image if it's not already in the answer
-                        if tool_info["content"] not in answer:
-                            answer += f"\n\n{tool_info['content']}"
+                     is_image = "data:image" in tool_info["content"]
+                if is_image:
+                    if tool_info["content"] not in answer:
+                      answer += f"\n\n{tool_info['content']}"
                 
                 # Append tools used at the end
                 if tools_used:
@@ -215,9 +219,9 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
                     
                     # Tell the LLM an image is ready to display
                     history.append({
-                        "role": "assistant",
-                        "content": f"Tool result: Dog image received successfully.",
-                    })
+                      "role": "assistant",
+                       "content": f"Tool '{tool_name}' result received successfully."
+                     })
                 else:
                     # Store regular tool result
                     tool_results.append({
@@ -226,7 +230,7 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
                     })
                     history.append({
                         "role": "assistant",
-                        "content": f"Tool result: {payload}",
+                        "content": f"Tool '{tool_name}' result received successfully.",
                     })
             except:
                 # Store unparsed result
@@ -236,8 +240,9 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
                 })
                 history.append({
                     "role": "assistant",
-                    "content": f"Tool result: {payload}",
+                    "content": f"Tool '{tool_name}' result received successfully.",
                 })
+                
 
         return {
             "answer": "I couldn’t complete the request.",
@@ -245,5 +250,4 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
         }
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    pass

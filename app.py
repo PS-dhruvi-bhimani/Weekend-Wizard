@@ -1,6 +1,8 @@
 import gradio as gr
 from datetime import datetime
-from agent import run_agent_once  # async function
+
+from agent import run_agent_once
+
 
 # -------- Greeting Logic --------
 def get_greeting():
@@ -13,32 +15,21 @@ def get_greeting():
         return "Good Evening ✨"
 
 
+
 # -------- Agent Wrapper (ASYNC SAFE) --------
 async def agent_reply(message, history):
     """
     Expects run_agent_once(message) to return:
     {
         "answer": "...",
-        "tools_used": [...],
-        "reasoning_steps": [...]
+        "tools_used": [...]
     }
     """
-    result = await run_agent_once(message)
+    result = await run_agent_once(user_message=message)
 
-    answer = result.get("answer", "")
-    tools = result.get("tools_used", [])
-    reasoning = result.get("reasoning_steps", [])
+    # ✅ UI should NOT modify agent output
+    return result.get("answer", "")
 
-    # Format the response with tool information
-    if tools:
-        tools_text = ", ".join(tools)
-        answer += f"\n\n🛠️ **Tools used:** {tools_text}"
-    
-    if reasoning and len(reasoning) > 0:
-        reasoning_text = " → ".join(reasoning)
-        answer += f"\n\n💭 **Process:** {reasoning_text}"
-
-    return answer
 
 
 # -------- Custom CSS --------

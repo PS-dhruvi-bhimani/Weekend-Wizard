@@ -46,3 +46,41 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 ```bash
 git clone https://github.com/PS-dhruvi-bhimani/Weekend-Wizard.git
 cd Weekend-Wizard
+
+### 2. Create a virtual environment & install dependencies
+
+Using uv (recommended):
+
+uv venv
+uv pip install -r requirements.txt
+
+
+If you don’t have uv:
+
+pip install uv
+
+### 3️. Configure environment variables
+
+Create a .env file in the project root:
+
+GROQ_API_KEY=your_groq_api_key_here
+### 4. Run the Gradio UI
+
+python app.py 
+
+Gradio will start a local server 
+http://127.0.0.1:7860
+
+💬 Example Prompts
+
+Try prompts like:
+
+“Plan a cozy Saturday in Bangalore”
+
+“I feel tired, suggest a relaxing Sunday”
+
+“Plan a fun weekend with friends if the weather is good”
+
+  “Show me a dog image and suggest a nearby place to visit”
+
+The agent will automatically decide when to call tools.
