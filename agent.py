@@ -1,104 +1,213 @@
-
 import asyncio
 import json
+import sys
 import os
-import base64
 import re
-from contextlib import AsyncExitStack
 from typing import Dict, Any, List
+from contextlib import AsyncExitStack
 
 from dotenv import load_dotenv
-from groq import Groq
+from mistralai import Mistral
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# -------------------------------------------------
-# ENV + GROQ SETUP
-# -------------------------------------------------
+
+
 load_dotenv()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    raise RuntimeError(
-        "GROQ_API_KEY not found. Make sure it exists in your .env file."
-    )
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+if not MISTRAL_API_KEY:
+    raise RuntimeError("MISTRAL_API_KEY not found.")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+mistral_client = Mistral(api_key=MISTRAL_API_KEY)
 
-# -------------------------------------------------
-# SYSTEM PROMPT (CLEAN + PRODUCTION GRADE)
-# -------------------------------------------------
+# -----------------------------
+# CONFIG
+# -----------------------------
+MODEL = "mistral-small-latest"  # Fast Mistral model
+TEMPERATURE = 0.2
+MAX_STEPS = 8
+MAX_PROMPT_CHARS = 8000
+
+PREF_FILE = "preferences.json"
+
+# -----------------------------
+# SYSTEM PROMPT (LARGE-PROMPT SAFE)
+# -----------------------------
 SYSTEM = """
-You are an autonomous AI agent with access to tools. Always respond in JSON format.
+You are an autonomous weekend-planning AI agent with access to external tools via MCP.
+You MUST always respond in valid JSON.
 
-Rules:
-- Carefully analyze the user's request. If they ask for multiple things or specific quantities, identify EXACTLY what they need.
-- Call tools ONE AT A TIME: respond with JSON: {"action":"tool_name","args":{...}}
-- ONLY use tools from the available tools list - NEVER make up tool names.
-- After receiving each tool result, count what you've completed and decide:
-  * If you need to call the SAME tool again (e.g., for multiple images) → call it again
-  * If there are MORE different tasks → call the next different tool
-  * If ALL tasks are complete (exact quantity met) → provide the final answer
-- When giving the final answer, respond with JSON: {"action":"final","answer":"..."}
+========================
+CORE BEHAVIOR
+========================
+- Be friendly, concise, and accurate.
+- Handle very large or complex prompts calmly.
+- If real-world, dynamic, or factual data is required, you MUST call a tool.
+- NEVER hallucinate tool data.
 
-For the final answer:
-- Present each result naturally and separately
-- If user asked for multiple of the same thing (like 2 dog images), show each one
-- DO NOT combine unrelated results into one paragraph
-- Be natural and conversational
-- DO NOT mention tool names or say 'I used a tool'
-- DO NOT include any technical terms like 'IMAGE_PLACEHOLDER', 'Tool result', or similar
-- Just deliver the information the user requested in a friendly way
+========================
+MANDATORY TOOL USAGE
+========================
+You MUST call a tool if the user asks for:
+- Weather, temperature, wind, outdoor conditions → get_weather
+- City names without coordinates → city_to_coords
+- Book recommendations or genres → book_recs
+- Jokes or humor → random_joke
+- Images, dog photos → random_dog
+- Trivia → trivia
+
+========================
+TOOL RULES
+========================
+- Call ONE tool at a time.
+- You MUST identify which tools are REQUIRED to fully satisfy the user's request.
+- For every REQUIRED tool, you MUST call it exactly once.
+- NEVER repeat a tool that has already completed.
+- NEVER invent tool names or arguments.
+- Always use actual tool output values in your answer.
+- You are NOT allowed to finalize until ALL REQUIRED tools have been successfully called.
+
+Tool call format (JSON ONLY):
+{"action":"tool_name","args":{...}}
+
+========================
+FINAL OUTPUT
+========================
+When finished, respond ONLY with:
+
+{
+  "action": "final",
+  "answer": "A friendly response that references specific tool data"
+}
 """
 
-# -------------------------------------------------
-# LLM CALL (GROQ)
-# -------------------------------------------------
-def llm_call(messages: List[Dict[str, str]], temperature: float = 0.3, top_p: float = 0.8) -> str:
-    """
-    Call Groq LLM with configurable parameters.
-    
-    Args:
-        messages: List of message dictionaries with role and content
-        temperature: Controls randomness (0.0-2.0). Lower = more focused, higher = more creative.
-        top_p: Controls diversity via nucleus sampling (0.0-1.0).
-    """
-    response = groq_client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+# -----------------------------
+# Preferences helpers
+# -----------------------------
+def load_prefs() -> Dict[str, Any]:
+    if os.path.exists(PREF_FILE):
+        with open(PREF_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_prefs(prefs: Dict[str, Any]):
+    with open(PREF_FILE, "w", encoding="utf-8") as f:
+        json.dump(prefs, f, indent=2)
+
+def extract_genre(text: str) -> str | None:
+    genres = [
+        "sci-fi", "science fiction", "fantasy", "romance",
+        "mystery", "thriller", "history", "philosophy"
+    ]
+    for g in genres:
+        if g in text.lower():
+            return g
+    return None
+
+# -----------------------------
+# Large prompt compression
+# -----------------------------
+def compress_large_input(user_message: str) -> str:
+    if len(user_message) <= MAX_PROMPT_CHARS:
+        return user_message
+
+    try:
+        response = mistral_client.chat.complete(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"Extract only the actionable request:\n{user_message[:MAX_PROMPT_CHARS]}"
+                }
+            ],
+            temperature=0.1,
+            max_tokens=300,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return user_message[:MAX_PROMPT_CHARS]
+
+def contains_lat_long(text: str) -> bool:
+    return bool(re.search(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+", text))
+
+# -----------------------------
+# LLM JSON helper (Mistral)
+# -----------------------------
+def llm_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    response = mistral_client.chat.complete(
+        model=MODEL,
         messages=messages,
-        temperature=temperature,
-        top_p=top_p,
+        temperature=TEMPERATURE,
         response_format={"type": "json_object"},
     )
-    return response.choices[0].message.content
+    return json.loads(response.choices[0].message.content)
 
+# -----------------------------
+# Infer Required Tools (LLM-driven)
+# -----------------------------
+def infer_required_tools(user_message: str, valid_tool_names: set[str]) -> set[str]:
+    """Use LLM to determine which tools are STRICTLY REQUIRED for the user's request."""
+    response = mistral_client.chat.complete(
+        model=MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "From the user's request, determine which tools are STRICTLY REQUIRED "
+                    "to answer it. Do NOT include optional or enrichment tools.\n\n"
+                    "Return JSON in this format:\n"
+                    '{ "required_tools": ["tool1", "tool2"] }'
+                )
+            },
+            {
+                "role": "user",
+                "content": f"User request:\n{user_message}\n\nAvailable tools:\n{', '.join(valid_tool_names)}"
+            }
+        ],
+        temperature=0.0,
+        response_format={"type": "json_object"},
+    )
 
-def remove_image_placeholders(text: str) -> str:
-    patterns = [
-        r"Here are .*images?.*:",
-        r"Image\s*\d+\s*:",
-    ]
-    for p in patterns:
-        text = re.sub(p, "", text, flags=re.IGNORECASE)
-    return text.strip()
+    data = json.loads(response.choices[0].message.content)
+    return set(data.get("required_tools", []))
 
-
-# -------------------------------------------------
-# SINGLE-TURN AGENT (USED BY UI)
-# -------------------------------------------------
+# -----------------------------
+# MAIN AGENT LOOP (UI-safe)
+# -----------------------------
 async def run_agent_once(user_message: str) -> Dict[str, Any]:
     server_path = "server.py"
 
-    # Clip user prompt if too large
-    MAX_PROMPT_CHARS = 8000
-    user_message = user_message[:MAX_PROMPT_CHARS]
+    original_user_query = user_message
+    user_message = compress_large_input(user_message)
 
     tools_used: List[str] = []
+    prefs = load_prefs()
+
     history: List[Dict[str, str]] = [
         {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": user_message},
     ]
+
+    # Preference learning
+    genre = extract_genre(user_message)
+    if genre:
+        prefs["favorite_genre"] = genre
+        save_prefs(prefs)
+
+    if "favorite_genre" in prefs and "book" in user_message.lower():
+        history.append({
+            "role": "system",
+            "content": f"User prefers {prefs['favorite_genre']} books."
+        })
+
+    history.append({"role": "user", "content": user_message})
+
+    if contains_lat_long(user_message):
+        history.append({
+            "role": "system",
+            "content": "Coordinates detected. Weather data is required."
+        })
 
     async with AsyncExitStack() as stack:
         stdio = await stack.enter_async_context(
@@ -106,7 +215,6 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
                 StdioServerParameters(command="python", args=[server_path])
             )
         )
-
         r_in, w_out = stdio
         session = await stack.enter_async_context(ClientSession(r_in, w_out))
         await session.initialize()
@@ -114,138 +222,92 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
         tools = (await session.list_tools()).tools
         valid_tool_names = {t.name for t in tools}
 
-        tool_list = "\n".join([f"- {t.name}: {t.description}" for t in tools])
-        history[0]["content"] += f"\n\nAvailable tools:\n{tool_list}"
-        
-        # Track tool results with their names for structured output
-        tool_results = []
+        # Compute required tools using LLM (model-driven, not hardcoded)
+        required_tools = infer_required_tools(user_message, valid_tool_names)
 
-        for iteration in range(12):  # Increased to handle more multiple requests
-            # Add summary of tool results ONCE on iteration 1
-            if iteration == 1 and tool_results:
-                # Count how many times each tool was called
-                tool_counts = {}
-                for tr in tool_results:
-                    tool_counts[tr['name']] = tool_counts.get(tr['name'], 0) + 1
-                
-                completed_summary = [f"{name} ({count}x)" if count > 1 else name 
-                                    for name, count in tool_counts.items()]
-                
+        history.insert(1, {
+            "role": "system",
+            "content": f"Available tools: {', '.join(valid_tool_names)}"
+        })
+
+        for _ in range(MAX_STEPS):
+            decision = llm_json(history)
+            action = decision.get("action")
+
+            # ---------- FINAL ----------
+            if action == "final":
+                final_answer = decision.get("answer", "")
+                break
+
+            # ---------- INVALID ACTION ----------
+            if not action:
                 history.append({
                     "role": "system",
-                    "content": f"Tools completed: {', '.join(completed_summary)}. Total calls: {len(tool_results)}. Check if the exact quantity requested by the user is met. If not, continue."
-                })
-            
-            response_text = llm_call(history)
-            
-            # Parse JSON and handle list or dict responses
-            try:
-                decision = json.loads(response_text)
-                
-                # Handle if response is a list - take first element
-                if isinstance(decision, list):
-                    if len(decision) > 0:
-                        decision = decision[0]
-                    else:
-                        decision = {"action": "final", "answer": "No response generated"}
-                
-                # Ensure it's a dict
-                if not isinstance(decision, dict):
-                    decision = {"action": "final", "answer": str(decision)}
-                    
-            except json.JSONDecodeError as e:
-                return {
-                    "answer": f"Error: Could not parse response. {str(e)}",
-                    "tools_used": tools_used,
-                }
-
-            # ✅ FINAL ANSWER
-            if decision.get("action") == "final":
-                answer = decision.get("answer", "")
-                
-                # Append any images that are NOT already in the answer
-                for tool_info in tool_results:
-                     is_image = "data:image" in tool_info["content"]
-                if is_image:
-                    if tool_info["content"] not in answer:
-                      answer += f"\n\n{tool_info['content']}"
-                
-                # Append tools used at the end
-                if tools_used:
-                    answer += f"\n\n---\n🛠️ Tools used: {', '.join(tools_used)}"
-                
-                return {
-                    "answer": answer,
-                    "tools_used": tools_used,
-                }
-
-            # 🔧 TOOL CALL
-            tool_name = decision.get("action")
-            tool_args = decision.get("args", {})
-
-            # 🚫 BLOCK HALLUCINATED TOOLS
-            if tool_name not in valid_tool_names:
-                history.append({
-                    "role": "system",
-                    "content": f"ERROR: Tool '{tool_name}' does not exist. Available tools: {', '.join(valid_tool_names)}. Use an available tool or provide final answer."
+                    "content": "You must either call a valid tool or finalize."
                 })
                 continue
 
-            # ✅ REAL TOOL CALL
-            tools_used.append(tool_name)
-
-            result = await session.call_tool(tool_name, tool_args)
-            payload = (
-                result.content[0].text
-                if result.content
-                else result.model_dump_json()
-            )
-            
-            # Parse JSON payload to check for images
-            try:
-                result_data = json.loads(payload)
-                # Check if this is an image result
-                if isinstance(result_data, dict) and "image_base64" in result_data:
-                    # Store the image data separately for the final answer
-                    image_b64 = result_data["image_base64"]
-                    mime_type = result_data.get("mime_type", "image/jpeg")
-                    
-                    # Store formatted image content
-                    image_markdown = f"![Dog Image](data:{mime_type};base64,{image_b64})"
-                    tool_results.append({
-                        "name": tool_name,
-                        "content": image_markdown
-                    })
-                    
-                    # Tell the LLM an image is ready to display
-                    history.append({
-                      "role": "assistant",
-                       "content": f"Tool '{tool_name}' result received successfully."
-                     })
-                else:
-                    # Store regular tool result
-                    tool_results.append({
-                        "name": tool_name,
-                        "content": payload
-                    })
-                    history.append({
-                        "role": "assistant",
-                        "content": f"Tool '{tool_name}' result received successfully.",
-                    })
-            except:
-                # Store unparsed result
-                tool_results.append({
-                    "name": tool_name,
-                    "content": payload
-                })
+            if action not in valid_tool_names:
                 history.append({
-                    "role": "assistant",
-                    "content": f"Tool '{tool_name}' result received successfully.",
+                    "role": "system",
+                    "content": f"'{action}' is not a valid tool. Choose from the available tools."
                 })
-                
+                continue
+
+            if action not in required_tools:
+                history.append({
+                    "role": "system",
+                    "content": (
+                        f"Tool '{action}' is NOT required for this request. "
+                        f"Only these tools are allowed: {', '.join(required_tools)}."
+                    )
+                })
+                continue
+
+            if action in tools_used:
+                history.append({
+                    "role": "system",
+                    "content": f"Tool '{action}' already completed. Choose another tool or finalize."
+                })
+                continue
+
+            # ---------- TOOL CALL ----------
+            result = await session.call_tool(action, decision.get("args", {}))
+            payload = result.content[0].text if result.content else "{}"
+
+            tools_used.append(action)
+
+            history.append({
+                "role": "system",
+                "content": f"Tool '{action}' result (may be partial): {payload}"
+            })
+            history.append({
+                "role": "system",
+                "content": (
+                    "Continue calling required tools if more information is needed. "
+                    "Only finalize when all necessary tools are completed."
+                )
+            })
+
+        # If MAX_STEPS hit, force final safely
+        if 'final_answer' not in locals():
+            history.append({
+                "role": "system",
+                "content": (
+                    "Now generate the FINAL answer.\n\n"
+                    f"User's original request:\n{original_user_query}\n\n"
+                    "Use ALL relevant tool outputs above.\n"
+                    "Ignore any tool failures unless they block the request.\n"
+                    "Do NOT apologize unless the entire request is impossible.\n"
+                    "Focus on fulfilling the user's original intent."
+                )
+            })
+            decision = llm_json(history)
+            final_answer = decision.get("answer", "")
 
         return {
-            "answer": "I couldn’t complete the request.",
+            "action": "final",
+            "answer": final_answer if 'final_answer' in locals() else "",
             "tools_used": tools_used,
         }
 
