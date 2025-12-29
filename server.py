@@ -5,12 +5,33 @@ import requests
 import html
 import time
 
-mcp = FastMCP("WeekendWizardTools")
+from config import (
+    MCP_SERVER_NAME,
+    TOOL_RETRY_COUNT,
+    TOOL_TIMEOUT,
+    GEOCODING_API_URL,
+    GEOCODING_COUNT,
+    WEATHER_API_URL,
+    WEATHER_CURRENT_PARAMS,
+    WEATHER_TIMEZONE,
+    BOOKS_API_URL,
+    BOOK_RECS_LIMIT,
+    DOG_API_URL,
+    TRIVIA_API_URL,
+    TRIVIA_AMOUNT,
+    TRIVIA_TYPE
+)
+
+mcp = FastMCP(MCP_SERVER_NAME)
 
 # -------------------------
 # Helper: retry + backoff
 # -------------------------
-def get_with_retry(url: str, params=None, retries: int = 3, timeout: int = 15):
+def get_with_retry(url: str, params=None, retries: int = None, timeout: int = None):
+    if retries is None:
+        retries = TOOL_RETRY_COUNT
+    if timeout is None:
+        timeout = TOOL_TIMEOUT
     for i in range(retries):
         try:
             r = requests.get(url, params=params, timeout=timeout)
@@ -28,8 +49,8 @@ def get_with_retry(url: str, params=None, retries: int = 3, timeout: int = 15):
 def city_to_coords(city: str) -> Dict[str, Any]:
     """Convert city name to latitude and longitude (Open-Meteo Geocoding)."""
     r = get_with_retry(
-        "https://geocoding-api.open-meteo.com/v1/search",
-        params={"name": city, "count": 1},
+        GEOCODING_API_URL,
+        params={"name": city, "count": GEOCODING_COUNT},
     )
 
     results = r.json().get("results")
@@ -51,12 +72,12 @@ def city_to_coords(city: str) -> Dict[str, Any]:
 def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
     """Current weather at coordinates via Open-Meteo."""
     r = get_with_retry(
-        "https://api.open-meteo.com/v1/forecast",
+        WEATHER_API_URL,
         params={
             "latitude": latitude,
             "longitude": longitude,
-            "current": "temperature_2m,weather_code,wind_speed_10m",
-            "timezone": "auto",
+            "current": WEATHER_CURRENT_PARAMS,
+            "timezone": WEATHER_TIMEZONE,
         },
     )
     return r.json().get("current", {})
@@ -65,36 +86,36 @@ def get_weather(latitude: float, longitude: float) -> Dict[str, Any]:
 # Book Recommendations
 # -------------------------
 @mcp.tool()
-def book_recs(topic: str, limit: int = 5) -> Dict[str, Any]:
-    """Book recommendations by topic (Open Library)."""
+def book_recs(topic: str, limit: int = None) -> Dict[str, Any]:
+    """Book recommendations by topic (Google Books API)."""
+    if limit is None:
+        limit = BOOK_RECS_LIMIT
+
     r = get_with_retry(
-        "https://openlibrary.org/search.json",
-        params={"q": topic, "limit": limit},
+        BOOKS_API_URL,
+        params={"q": topic, "maxResults": limit},
     )
 
-    docs = r.json().get("docs", [])
+    data = r.json()
+    items = data.get("items", [])[:limit]
+
     results: List[Dict[str, Any]] = []
 
-    for d in docs:
+    for item in items:
+        info = item.get("volumeInfo", {})
+
         results.append({
-            "title": d.get("title"),
-            "author": (d.get("author_name") or ["Unknown"])[0],
-            "year": d.get("first_publish_year"),
+            "title": info.get("title"),
+            "authors": info.get("authors", ["Unknown"]),
+            "published_year": info.get("publishedDate", "Unknown"),
+            "description": info.get("description", ""),
+            "preview_link": info.get("previewLink"),
         })
 
-    return {"topic": topic, "results": results}
-
-# -------------------------
-# Joke
-# -------------------------
-@mcp.tool()
-def random_joke() -> Dict[str, Any]:
-    """Return a safe, one-liner joke."""
-    r = get_with_retry(
-        "https://v2.jokeapi.dev/joke/Any",
-        params={"type": "single", "safe-mode": True},
-    )
-    return {"joke": r.json().get("joke", "No joke found")}
+    return {
+        "topic": topic,
+        "results": results,
+    }
 
 # -------------------------
 # Dog Image
@@ -102,7 +123,7 @@ def random_joke() -> Dict[str, Any]:
 @mcp.tool()
 def random_dog() -> Dict[str, Any]:
     """Return a random dog image URL."""
-    r = get_with_retry("https://dog.ceo/api/breeds/image/random")
+    r = get_with_retry(DOG_API_URL)
     return r.json()
 
 # -------------------------
@@ -112,8 +133,8 @@ def random_dog() -> Dict[str, Any]:
 def trivia() -> Dict[str, Any]:
     """Return one multiple-choice trivia question."""
     r = get_with_retry(
-        "https://opentdb.com/api.php",
-        params={"amount": 1, "type": "multiple"},
+        TRIVIA_API_URL,
+        params={"amount": TRIVIA_AMOUNT, "type": TRIVIA_TYPE},
     )
 
     data = r.json().get("results")

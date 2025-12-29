@@ -3,16 +3,32 @@ import gradio as gr
 from datetime import datetime
 
 from agent import run_agent_once
+from config import (
+    GRADIO_THEME,
+    GRADIO_CHATBOT_HEIGHT,
+    GRADIO_TEXTBOX_SCALE,
+    UI_TITLE,
+    UI_PLACEHOLDER,
+    UI_SUBMIT_BUTTON,
+    GREETING_MORNING,
+    GREETING_AFTERNOON,
+    GREETING_EVENING,
+    MORNING_HOUR_CUTOFF,
+    AFTERNOON_HOUR_CUTOFF,
+    LOG_SEPARATOR_WIDTH,
+    LOG_MESSAGE_PREVIEW_LENGTH,
+    LOG_RESPONSE_PREVIEW_LENGTH
+)
 
 
 def get_greeting():
     hour = datetime.now().hour
-    if hour < 12:
-        return "Good Morning ☀️"
-    elif hour < 17:
-        return "Good Afternoon 🌤️"
+    if hour < MORNING_HOUR_CUTOFF:
+        return GREETING_MORNING
+    elif hour < AFTERNOON_HOUR_CUTOFF:
+        return GREETING_AFTERNOON
     else:
-        return "Good Evening ✨"
+        return GREETING_EVENING
 
 
 async def agent_reply(message, history):
@@ -22,11 +38,11 @@ async def agent_reply(message, history):
     tools = result.get("tools_used", [])
 
     # Log for debugging
-    print(f"\n{'='*60}")
-    print(f"User Query: {message[:80]}...")
+    print(f"\n{'='*LOG_SEPARATOR_WIDTH}")
+    print(f"User Query: {message[:LOG_MESSAGE_PREVIEW_LENGTH]}...")
     print(f"Tools Called: {tools if tools else 'None'}")
-    print(f"Response Preview: {answer[:100]}...")
-    print(f"{'='*60}\n")
+    print(f"Response Preview: {answer[:LOG_RESPONSE_PREVIEW_LENGTH]}...")
+    print(f"{'='*LOG_SEPARATOR_WIDTH}\n")
 
     # Format output with tools used
     if tools:
@@ -99,7 +115,7 @@ with gr.Blocks() as demo:
 
     gr.HTML(
         f"""
-        <div id="wizard-title">weekend - wizard</div>
+        <div id="wizard-title">{UI_TITLE}</div>
         <div id="wizard-greeting">
             {greeting}<br/>
             <span style="font-size:1.1rem;">Ask me anything! I'll autonomously decide which tools to use.</span>
@@ -108,7 +124,7 @@ with gr.Blocks() as demo:
     )
 
     chatbot = gr.Chatbot(
-        height=420,
+        height=GRADIO_CHATBOT_HEIGHT,
         show_label=False,
     )
 
@@ -116,12 +132,15 @@ with gr.Blocks() as demo:
         fn=agent_reply,
         chatbot=chatbot,
         textbox=gr.Textbox(
-            placeholder="Tell me how you're feeling or what you need...",
-            scale=7,
-            submit_btn="✨ Ask"
+            placeholder=UI_PLACEHOLDER,
+            scale=GRADIO_TEXTBOX_SCALE,
+            submit_btn=UI_SUBMIT_BUTTON
         ),
     )
 
 
 if __name__ == "__main__":
-    demo.launch(theme=gr.themes.Soft(), css=CUSTOM_CSS)
+    # Get theme dynamically from config
+    theme_name = GRADIO_THEME
+    theme = getattr(gr.themes, theme_name, gr.themes.Soft)()
+    demo.launch(theme=theme, css=CUSTOM_CSS)
