@@ -10,7 +10,7 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 
 - 🧠 Autonomous AI agent powered by Cerebras API that decides when to call tools  
 - 🛠 MCP-based tool integration (weather, books, jokes, dog images, trivia)
-- ⚡ Fast inference with llama-3.3-70b model
+- ⚡ Fast inference with qwen-3-32b model
 - 🎨 Clean Gradio chat UI
 - 🔐 Secure handling of API keys via environment variables
 - 🧩 Modular and extensible agent architecture
@@ -40,7 +40,7 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 ## 🚀 Tech Stack
 
 - Python 3.11+
-- Cerebras AI API (llama-3.3-70b)
+- Cerebras AI API (qwen-3-32b)
 - MCP (Model Context Protocol)
 - Gradio 6.0+
 - FastMCP for tool server

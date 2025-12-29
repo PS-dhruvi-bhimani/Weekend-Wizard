@@ -24,7 +24,8 @@ from config import (
     SERVER_PATH,
     SERVER_COMMAND,
     DETECTED_GENRES,
-    validate_config
+    validate_config,
+    load_system_prompt
 )
 
 # Validate configuration on startup
@@ -32,43 +33,8 @@ validate_config()
 
 cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY)
 
-# -----------------------------
-# SYSTEM PROMPT (LARGE-PROMPT SAFE)
-# -----------------------------
-SYSTEM = """
-You are an autonomous AI agent with access to external tools via MCP.
-You MUST always respond in valid JSON format.
-
-========================
-CORE BEHAVIOR
-========================
-- Be friendly, concise, and accurate
-- If real-world, dynamic, or factual data is required, call the appropriate tool
-- NEVER hallucinate or make up tool results
-- Use actual tool output values in your final answer
-
-========================
-TOOL RULES
-========================
-- Call ONE tool at a time
-- NEVER repeat a tool that has already been called
-- NEVER invent tool names or arguments
-- Use tools when you need real-time data (weather, books, jokes, trivia, etc.)
-- When a user asks for book recommendations, use the book_recs tool with the topic
-
-Tool call format:
-{"action":"tool_name","args":{...}}
-
-========================
-FINAL OUTPUT
-========================
-When you have all the information needed, respond with:
-
-{
-  "action": "final",
-  "answer": "Your response using the tool data"
-}
-"""
+# Load system prompt from configuration
+SYSTEM = load_system_prompt()
 
 # -----------------------------
 # Preferences helpers
@@ -114,6 +80,21 @@ def compress_large_input(user_message: str) -> str:
 
 def contains_lat_long(text: str) -> bool:
     return bool(re.search(r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+", text))
+
+def extract_coordinates(text: str) -> tuple[float, float] | None:
+    """Extract latitude and longitude from text."""
+    # Match patterns like (40.7128, -74.0060) or 40.7128, -74.0060
+    match = re.search(r"\(?(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\)?", text)
+    if match:
+        try:
+            lat = float(match.group(1))
+            lon = float(match.group(2))
+            # Validate coordinate ranges
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return (lat, lon)
+        except ValueError:
+            pass
+    return None
 
 # -----------------------------
 # Tool result normalization
@@ -176,6 +157,16 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
         })
 
     history.append({"role": "user", "content": user_message})
+
+    # Extract and inject coordinates if present
+    if contains_lat_long(user_message):
+        coords = extract_coordinates(user_message)
+        if coords:
+            lat, lon = coords
+            history.append({
+                "role": "user",
+                "content": f"Coordinates detected: latitude={lat}, longitude={lon}. To get weather, call get_weather with these exact values: {{\"action\":\"get_weather\",\"args\":{{\"latitude\":{lat},\"longitude\":{lon}}}}}"
+            })
 
     if contains_lat_long(user_message):
         history.append({

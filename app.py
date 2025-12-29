@@ -94,7 +94,7 @@ body {
 #wizard-greeting {
     font-size: 1.4rem;
     text-align: center;
-    color: #555;
+    color: #555555;
     margin-bottom: 1.8em;
 }
 
@@ -118,7 +118,7 @@ with gr.Blocks() as demo:
         <div id="wizard-title">{UI_TITLE}</div>
         <div id="wizard-greeting">
             {greeting}<br/>
-            <span style="font-size:1.1rem;">Ask me anything! I'll autonomously decide which tools to use.</span>
+            <span style="font-size:1.1rem;">Hello! How can I assist you today?</span>
         </div>
         """
     )
