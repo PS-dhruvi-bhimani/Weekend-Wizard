@@ -8,9 +8,9 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 
 ## ✨ Features
 
-- 🧠 Autonomous AI agent powered by Mistral API that decides when to call tools  
+- 🧠 Autonomous AI agent powered by Cerebras API that decides when to call tools  
 - 🛠 MCP-based tool integration (weather, books, jokes, dog images, trivia)
-- ⚡ Fast inference with mistral-small-latest model
+- ⚡ Fast inference with llama-3.3-70b model
 - 🎨 Clean Gradio chat UI
 - 🔐 Secure handling of API keys via environment variables
 - 🧩 Modular and extensible agent architecture
@@ -21,7 +21,7 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 ## 🏗 Architecture Overview
 
 - **Agent Layer**  
-  Decides *what to do* using Mistral AI (call tools or provide final answer)
+  Decides *what to do* using Cerebras AI (call tools or provide final answer)
 
 - **Tool Layer (MCP Servers)**  
   Provides real-world capabilities:
@@ -40,7 +40,7 @@ It is built using a **local LLM + MCP (Model Context Protocol) tools**, followin
 ## 🚀 Tech Stack
 
 - Python 3.11+
-- Mistral AI API (mistral-small-latest)
+- Cerebras AI API (llama-3.3-70b)
 - MCP (Model Context Protocol)
 - Gradio 6.0+
 - FastMCP for tool server
@@ -79,13 +79,13 @@ Copy the example environment file and customize it:
 cp .env.example .env
 ```
 
-Then edit `.env` and add your Mistral API key:
+Then edit `.env` and add your Cerebras API key:
 
 ```env
-MISTRAL_API_KEY=your_mistral_api_key_here
+CEREBRAS_API_KEY=your_cerebras_api_key_here
 ```
 
-Get your Mistral API key from: https://console.mistral.ai/
+Get your Cerebras API key from: https://cloud.cerebras.ai/
 
 The `.env.example` file contains all available configuration options with documentation. You can customize:
 - Model settings (temperature, max steps, etc.)

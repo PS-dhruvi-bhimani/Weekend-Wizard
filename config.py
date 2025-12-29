@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API Configuration
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 
 # Model Configuration
-MODEL = os.getenv("MODEL", "mistral-small-latest")
+MODEL = os.getenv("MODEL", "qwen-3-32b")
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
 COMPRESSION_TEMPERATURE = float(os.getenv("COMPRESSION_TEMPERATURE", "0.1"))
 
@@ -79,6 +79,6 @@ LOG_RESPONSE_PREVIEW_LENGTH = int(os.getenv("LOG_RESPONSE_PREVIEW_LENGTH", "100"
 # Validation
 def validate_config():
     """Validate required configuration values"""
-    if not MISTRAL_API_KEY:
-        raise RuntimeError("MISTRAL_API_KEY not found in environment variables.")
+    if not CEREBRAS_API_KEY:
+        raise RuntimeError("CEREBRAS_API_KEY not found in environment variables.")
     return True

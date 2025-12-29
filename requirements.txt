@@ -1,5 +1,6 @@
 gradio>=6.2.0
 mcp>=1.25.0
-mistralai>=1.0.0
+cerebras-cloud-sdk>=1.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
+fastmcp>=0.1.0

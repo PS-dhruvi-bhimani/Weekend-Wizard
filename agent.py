@@ -6,14 +6,14 @@ import re
 from typing import Dict, Any, List
 from contextlib import AsyncExitStack
 
-from mistralai import Mistral
+from cerebras.cloud.sdk import Cerebras
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 # Import configuration
 from config import (
-    MISTRAL_API_KEY,
+    CEREBRAS_API_KEY,
     MODEL,
     TEMPERATURE,
     COMPRESSION_TEMPERATURE,
@@ -30,7 +30,7 @@ from config import (
 # Validate configuration on startup
 validate_config()
 
-mistral_client = Mistral(api_key=MISTRAL_API_KEY)
+cerebras_client = Cerebras(api_key=CEREBRAS_API_KEY)
 
 # -----------------------------
 # SYSTEM PROMPT (LARGE-PROMPT SAFE)
@@ -97,7 +97,7 @@ def compress_large_input(user_message: str) -> str:
         return user_message
 
     try:
-        response = mistral_client.chat.complete(
+        response = cerebras_client.chat.completions.create(
             model=MODEL,
             messages=[
                 {
@@ -136,10 +136,10 @@ def normalize_tool_result(result) -> str:
         return "{}"
 
 # -----------------------------
-# LLM JSON helper (Mistral)
+# LLM JSON helper (Cerebras)
 # -----------------------------
 def llm_json(messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    response = mistral_client.chat.complete(
+    response = cerebras_client.chat.completions.create(
         model=MODEL,
         messages=messages,
         temperature=TEMPERATURE,
