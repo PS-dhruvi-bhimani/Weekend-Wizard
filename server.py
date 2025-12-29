@@ -91,31 +91,51 @@ def book_recs(topic: str, limit: int = None) -> Dict[str, Any]:
     if limit is None:
         limit = BOOK_RECS_LIMIT
 
-    r = get_with_retry(
-        BOOKS_API_URL,
-        params={"q": topic, "maxResults": limit},
-    )
+    try:
+        r = get_with_retry(
+            BOOKS_API_URL,
+            params={"q": topic, "maxResults": limit},
+        )
 
-    data = r.json()
-    items = data.get("items", [])[:limit]
+        data = r.json()
+        
+        # Check for API errors
+        if "error" in data:
+            return {"error": f"Google Books API error: {data['error']}", "topic": topic}
+        
+        items = data.get("items", [])
+        
+        # Handle case when no items found
+        if not items:
+            return {
+                "topic": topic,
+                "results": [],
+                "message": f"No books found for topic '{topic}'. Try a different search term."
+            }
 
-    results: List[Dict[str, Any]] = []
+        results: List[Dict[str, Any]] = []
 
-    for item in items:
-        info = item.get("volumeInfo", {})
+        for item in items[:limit]:
+            info = item.get("volumeInfo", {})
 
-        results.append({
-            "title": info.get("title"),
-            "authors": info.get("authors", ["Unknown"]),
-            "published_year": info.get("publishedDate", "Unknown"),
-            "description": info.get("description", ""),
-            "preview_link": info.get("previewLink"),
-        })
+            results.append({
+                "title": info.get("title", "Unknown Title"),
+                "authors": info.get("authors", ["Unknown"]),
+                "published_year": info.get("publishedDate", "Unknown"),
+                "description": info.get("description", "No description available"),
+                "preview_link": info.get("previewLink", ""),
+            })
 
-    return {
-        "topic": topic,
-        "results": results,
-    }
+        return {
+            "topic": topic,
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
+        return {
+            "error": f"Failed to fetch book recommendations: {str(e)}",
+            "topic": topic
+        }
 
 # -------------------------
 # Dog Image

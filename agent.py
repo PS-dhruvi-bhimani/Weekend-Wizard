@@ -144,13 +144,33 @@ async def run_agent_once(user_message: str) -> Dict[str, Any]:
         {"role": "user", "content": SYSTEM},
     ]
 
-    # Preference learning
+    # Preference learning and book query detection
     genre = extract_genre(user_message)
     if genre:
         prefs["favorite_genre"] = genre
         save_prefs(prefs)
 
-    if "favorite_genre" in prefs and "book" in user_message.lower():
+    # Detect if this is a book query
+    book_keywords = ["book", "recommend", "read", "novel", "reading", "suggest"]
+    is_book_query = any(keyword in user_message.lower() for keyword in book_keywords)
+    
+    # If genre detected without explicit book keywords, assume it's a book request
+    if genre and not is_book_query:
+        # Single word genre queries like "thriller", "romance" are likely book requests
+        if len(user_message.split()) <= 3:
+            is_book_query = True
+    
+    if is_book_query and genre:
+        history.append({
+            "role": "user",
+            "content": f"User wants book recommendations about '{genre}'. Use book_recs tool with topic='{genre}'. Do NOT call other tools unless explicitly requested."
+        })
+    elif is_book_query and "favorite_genre" in prefs:
+        history.append({
+            "role": "user",
+            "content": f"User wants book recommendations. They prefer {prefs['favorite_genre']}. Use book_recs tool."
+        })
+    elif "favorite_genre" in prefs and "book" in user_message.lower():
         history.append({
             "role": "user",
             "content": f"Note: User prefers {prefs['favorite_genre']} books."
